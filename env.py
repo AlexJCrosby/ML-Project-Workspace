@@ -4,13 +4,15 @@ import numpy as np
 # Action mapping: int -> (row_change, col_change)
 ACTION_DELTAS = {
     0: np.array([-1, 0]),  # Up
-    1: np.array([1, 0]),   # Down
-    2: np.array([0, -1]),  # Left
-    3: np.array([0, 1])    # Right
+    1: np.array([0, 1]),   # Right
+    2: np.array([1, 0]),   # Down
+    3: np.array([0, -1])   # Left
+    
 }
 
 class MazeEnv:
     def __init__(self):
+
         """
         Simple 4x4 Maze.
         
@@ -41,7 +43,8 @@ class MazeEnv:
         
         # will be set in reset
         self.agent_pos = None
-        
+        print(self.grid)
+
     # --- helpers for state <-> index ---
     
     def pos_to_state(self, pos: np.ndarray) -> int:
@@ -104,18 +107,21 @@ class MazeEnv:
     
     def render(self):
         """Print the maze with the agent's current position in the console."""
-        
         display = np.array(self.grid, dtype=str)
-        display[display == '0'] = ' '  # free cell
-        display[display == '1'] = '#'  # wall
+        
+        display[display == '0'] = " "  # free cell
+        display[display == '1'] = "#"  # wall
         
         sr, sc = self.start_pos
         gr, gc = self.goal_pos
         ar, ac = self.agent_pos
+
         
         display[sr, sc] = 'S'  # Start
         display[gr, gc] = 'G'  # Goal
-        # agent overrides S/G visually (for now)
+
+        # Marks the agent's current position (currently overrides S or G if on those cells)
+        display[ar, ac] = 'A'  # Agent
         
         print("\n".join("".join(row) for row in display))
         print()
@@ -126,15 +132,13 @@ if __name__ == "__main__":
     env = MazeEnv()
     state = env.reset()
     env.render()
-    
-    # take a few random actions just to see it move
-    rng = np.random.default_rng()
-    done = False
-    
-    for t in range(10):
-        action = rng.integers(0, env.n_actions)
+
+    # Try moving right 3 times then down 3 times
+    actions = [1, 1, 1, 2, 2, 2]  # right, right, right, down, down, down
+
+    for t, action in enumerate(actions):
         next_state, reward, done, _ = env.step(action)
-        print(f"Step {t}: Action {action}, Reward {reward}, Done {done}")
+        print(f"Step {t}: action={action}, state={next_state}, reward={reward}, done={done}")
         env.render()
         if done:
             print("Reached the goal!")
