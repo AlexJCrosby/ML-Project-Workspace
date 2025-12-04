@@ -71,7 +71,7 @@ def train_q_learning(
                 f"Epsilon: {epsilon:5.3f}"
             )
             
-        return Q, episode_rewards
+    return Q, episode_rewards
     
 def run_greedy_policy(Q: np.ndarray, render: bool = True, max_steps: int = 50):
     """
