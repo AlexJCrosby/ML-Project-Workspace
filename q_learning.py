@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from env import MazeEnv
 
 # action selection
@@ -73,9 +74,44 @@ def train_q_learning(
                 f"Avg Reward (last 100): {last_100_avg:6.2f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
-            
     return Q, episode_rewards
-    
+
+def plot_learning_curve(
+    rewards: list[float],
+    window: int = 100,
+    filename: str = "learning_curve.png"
+) -> None:
+    """
+    Saves a learning curve plot (episode reward + moving average) to a PNG file.
+    """
+    import matplotlib.pyplot as plt  # imported here to keep the rest of the file lightweight
+
+    if len(rewards) == 0:
+        print("No rewards to plot.")
+        return
+
+    episodes = np.arange(1, len(rewards) + 1)
+
+    plt.figure()
+    plt.plot(episodes, rewards, label="Episode reward")
+
+    # Moving average (only if we have enough episodes)
+    if len(rewards) >= window:
+        kernel = np.ones(window) / window
+        moving_avg = np.convolve(rewards, kernel, mode="valid")
+        ma_episodes = np.arange(window, len(rewards) + 1)
+        plt.plot(ma_episodes, moving_avg, label=f"Moving average ({window})")
+
+    plt.xlabel("Episode")
+    plt.ylabel("Total reward")
+    plt.title("Q-Learning: Learning Curve")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150)
+    plt.close()
+
+    print(f"Saved learning curve plot to: {filename}")
+
 # No learning, just demonstrate the learned policy
 def run_greedy_policy(Q: np.ndarray, render: bool = True, max_steps: int = 50):
     """
@@ -110,7 +146,10 @@ def run_greedy_policy(Q: np.ndarray, render: bool = True, max_steps: int = 50):
 if __name__ == "__main__":
     # Train Q-learning agent
     Q, rewards = train_q_learning()
-    
+        
+    # Save a learning curve plot
+    plot_learning_curve(rewards, window=100, filename="learning_curve.png")
+
     # Test the learned policy
     print("\nRunning greedy policy after training:\n")
     run_greedy_policy(Q, render=True)
