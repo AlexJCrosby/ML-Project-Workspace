@@ -7,9 +7,9 @@ ACTION_DELTAS = {
     1: np.array([0, 1]),   # Right
     2: np.array([1, 0]),   # Down
     3: np.array([0, -1])   # Left
-    
 }
 
+# Setting up the world
 class MazeEnv:
     def __init__(self):
 

@@ -1,6 +1,7 @@
 import numpy as np
 from env import MazeEnv
 
+# action selection
 def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng: np.random.Generator) -> int:
     """
     Epsilon-greedy action selection.
@@ -13,6 +14,7 @@ def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng:
         return int(np.argmax(Q[state]))  # Exploit: best action based on Q-tabler
     
     
+# Main Q-learning training loop
 def train_q_learning(
     num_episodes: int = 2000,
     max_steps_per_episode: int = 100,
@@ -47,17 +49,18 @@ def train_q_learning(
             old_value = Q[state, action]
             next_max = np.max(Q[next_state])
             
+            # Where learning happens: 
             # Q(s,a) <- Q(s,a) + alpha * [reward + gamma * max_a' Q(s',a') - Q(s,a)]
             new_value = old_value + alpha * (reward + gamma * next_max - old_value)
             Q[state, action] = new_value
             
-            state = next_state
-            total_reward += reward
+            state = next_state # update where it thinks it is
+            total_reward += reward # track how this episode is going
             
             if done:
                 break
             
-        # 4. Decay epsilon after each episode
+        # 4. Decay epsilon after each episode (reduce randomness over time)
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
         
         episode_rewards.append(total_reward)
@@ -65,7 +68,7 @@ def train_q_learning(
         # Logging: print progress every 100 episodes
         if (episode + 1) % 100 == 0:
             last_100_avg = np.mean(episode_rewards[-100:])
-            print(
+            print( # diagnostic (visualise learning progress)
                 f"Episode {episode + 1:4d} | "
                 f"Avg Reward (last 100): {last_100_avg:6.2f} | "
                 f"Epsilon: {epsilon:5.3f}"
@@ -73,6 +76,7 @@ def train_q_learning(
             
     return Q, episode_rewards
     
+# No learning, just demonstrate the learned policy
 def run_greedy_policy(Q: np.ndarray, render: bool = True, max_steps: int = 50):
     """
     Run one episode using the greedy policy (no exploration)
