@@ -281,7 +281,7 @@ class DukeSurvivalEnv:
                 self.gaze_active = False
                 self.gaze_timer = 0
 
-                # --- 3) Reward / termination ---
+        # --- 3) Reward / termination ---
         done = False
 
         # Start with survival reward
