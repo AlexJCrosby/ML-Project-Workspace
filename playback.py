@@ -60,14 +60,17 @@ def capture_frame(env: DukeSurvivalEnv, action, reward, done: bool, info: dict):
     gaze_active = bool(env.gaze_active)
     gaze_timer = int(env.gaze_timer)
 
-    # Hazard overlays (purely visual):
-    # - Slam hazard: if slam resolves on tick%5==1, standing on melee tile takes damage.
-    #   We'll highlight all melee tiles on slam ticks so you can "see" the danger phase.
-    slam_tick = (tick % 5 == 1)
-    telegraph_tick = (tick % 5 == 0)
+    # With 1-indexed ticks:
+    # - telegraph/attack-cycle ticks are 5,10,15,...  => tick % 5 == 0 and tick >= 5
+    # - slam ticks are the following ticks: 6,11,16,... => (tick - 1) % 5 == 0 and tick >= 6
+    telegraph_tick = (tick >= 5) and (tick % 5 == 0)
+    slam_tick = (tick >= 6) and ((tick - 1) % 5 == 0)
 
-    melee_mask = (grid == env.TILE_MELEE)
-    slam_hazard_mask = melee_mask & slam_tick
+    # Slam hazard is row=2, cols 3..10 inclusive (1x1 AoE per tile)
+    slam_zone = np.zeros_like(grid, dtype=bool)
+    slam_zone[2, 3:11] = True  # cols 3..10 inclusive
+
+    slam_hazard_mask = slam_zone & slam_tick
 
     # Gaze resolution happens when gaze_timer counts down to 0 inside step().
     # In your env, the lethal check occurs when gaze_active and gaze_timer reaches 0.

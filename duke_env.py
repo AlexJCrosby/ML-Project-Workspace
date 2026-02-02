@@ -98,7 +98,7 @@ class DukeSurvivalEnv:
         self.walkable = (self.grid != self.TILE_WALL) & (self.grid != self.TILE_BOSS)
 
         # Pick a sensible start tile: open tile near the middle-bottom
-        self.start_pos = np.array([7, 5], dtype=int)
+        self.start_pos = np.array([2, 3], dtype=int)
 
         # Internal state (set on reset)
         self.agent_pos = None
@@ -107,6 +107,9 @@ class DukeSurvivalEnv:
         self.attack_event_count = None
         self.gaze_active = None
         self.gaze_timer = None
+        self.pending_slam = None
+        self.last_melee_cycle_tick = None
+
 
     # --- helpers for state <-> index ---
 
@@ -122,11 +125,21 @@ class DukeSurvivalEnv:
     def reset(self) -> int:
         self.agent_pos = self.start_pos.copy()
         self.hp = self.start_hp
-        self.t = 0
+
+        # Use 1-indexed ticks to match your design + playback expectations.
+        # First attack cycle happens at tick 5.
+        self.t = 1
+
         self.attack_event_count = 0
         self.gaze_active = False
         self.gaze_timer = 0
+
+        # Standard attack state
+        self.pending_slam = False
+        self.last_melee_cycle_tick = None
+
         return self.pos_to_state(self.agent_pos)
+
 
     def _is_pillar_safe(self, pos: np.ndarray) -> bool:
         return self._tile_at(pos) == self.TILE_PILLAR
@@ -134,6 +147,16 @@ class DukeSurvivalEnv:
     def _tile_at(self, pos: np.ndarray) -> int:
         r, c = int(pos[0]), int(pos[1])
         return int(self.grid[r, c])
+
+    def _in_melee_range(self, pos: np.ndarray) -> bool:
+        """
+        Coordinate-based melee range check (matches your design):
+        - y (row) == 2
+        - x (col) in [2..10] inclusive
+        Includes corner tiles (2,2) and (2,10) even if they are pillar tiles.
+        """
+        r, c = int(pos[0]), int(pos[1])
+        return (r == 2) and (2 <= c <= 10)
 
     def step(self, action: int):
         """
@@ -160,27 +183,70 @@ class DukeSurvivalEnv:
             "gaze_timer": self.gaze_timer,
         }
 
-        # Attack "event" occurs every 5 ticks (tick 0,5,10,...)
-        if self.t % 5 == 0:
-            # Trigger Freezing Gaze every 5th attack event (i.e., every 25 ticks)
-            if (self.attack_event_count > 0) and (self.attack_event_count % 5 == 0):
-                self.gaze_active = True
-                self.gaze_timer = 5  # after 5 ticks, must be behind pillar
+        # ------------------------------------------------------------
+        # Standard attack system (matches your design)
+        # - Attack cycle ticks: 5,10,15,...  (first at 5)
+        # - On cycle tick:
+        #     if in melee range -> Icicle Rise (+3 if in rise AOE), and schedule Slam next tick
+        #     else -> Magic hit (28)
+        # - On following tick after melee cycle tick -> Icicle Slam (+20 if on slam tiles)
+        # ------------------------------------------------------------
 
+        # 1) Resolve a pending slam (only happens the tick AFTER a melee cycle tick)
+        if self.pending_slam and (self.last_melee_cycle_tick is not None) and (self.t == self.last_melee_cycle_tick + 1):
+            # Slam is 1x1 AoE on row=2, cols 3..10 inclusive
+            r, c = int(self.agent_pos[0]), int(self.agent_pos[1])
+            in_slam = (r == 2) and (3 <= c <= 10)
+
+            if in_slam:
+                self.hp -= self.slam_damage
+                info["took_slam_damage"] = True
+            else:
+                info["took_slam_damage"] = False
+
+            # Slam resolved, clear pending
+            self.pending_slam = False
+
+        # 2) Attack cycle tick (5,10,15,...)
+        if self.t % 5 == 0:
+            # Count attack events for gaze cadence
             self.attack_event_count += 1
 
-        # Standard attack resolves here.
-        # In melee range -> slam logic
-        # Out of melee range -> magic projectile (big mistake)
-        if self._tile_at(self.agent_pos) == self.TILE_MELEE:
-            self.hp -= self.slam_damage
-            info["took_slam_damage"] = True
-            info["took_magic_damage"] = False
-        else:
-            self.hp -= 48
-            info["took_slam_damage"] = False
-            info["took_magic_damage"] = True
+            # Trigger Freezing Gaze every 5th attack event (ticks 25,50,75,...)
+            if self.attack_event_count % 5 == 0:
+                self.gaze_active = True
+                self.gaze_timer = 5  # after 5 ticks, must be on a pillar tile
 
+            # Decide attack type based on coordinate melee range
+            if self._in_melee_range(self.agent_pos):
+                # Icicle Rise (telegraph + small damage if you're in the rise AoE)
+                # Rise affects rows 2..3 and cols 2..10 (your described "two rows in front incl diagonals")
+                r, c = int(self.agent_pos[0]), int(self.agent_pos[1])
+                in_rise_aoe = (r in (2, 3)) and (2 <= c <= 10)
+
+                if in_rise_aoe:
+                    self.hp -= 3
+                    info["took_rise_damage"] = True
+                else:
+                    info["took_rise_damage"] = False
+
+                # Schedule Slam next tick
+                self.pending_slam = True
+                self.last_melee_cycle_tick = self.t
+
+                info["took_magic_damage"] = False
+
+            else:
+                # Magic projectile (28 damage)
+                self.hp -= 28
+                info["took_magic_damage"] = True
+
+                # Ensure we don't accidentally slam next tick
+                self.pending_slam = False
+                self.last_melee_cycle_tick = None
+
+                info["took_rise_damage"] = False
+                info["took_slam_damage"] = False
 
         # Handle gaze countdown and resolution
         if self.gaze_active:
