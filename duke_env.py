@@ -281,9 +281,26 @@ class DukeSurvivalEnv:
                 self.gaze_active = False
                 self.gaze_timer = 0
 
-        # --- 3) Reward / termination ---
+                # --- 3) Reward / termination ---
         done = False
+
+        # Start with survival reward
         reward = self.step_reward
+
+        # Penalize damage taken this tick (encourages dodging)
+        damage_this_tick = 0
+
+        if info.get("took_magic_damage", False):
+            damage_this_tick += 28
+        if info.get("took_rise_damage", False):
+            damage_this_tick += 3
+        if info.get("took_slam_damage", False):
+            damage_this_tick += self.slam_damage
+        if info.get("took_gaze_damage", False):
+            damage_this_tick += self.gaze_damage
+
+        # Scale factor: tune this. 0.1 means 28 dmg => -2.8 reward.
+        reward -= 0.1 * damage_this_tick
 
         if self.hp <= 0:
             done = True

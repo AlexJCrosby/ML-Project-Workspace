@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -121,6 +122,14 @@ def play_frames(frames):
 
     idx = 0
     autoplay = False
+    cumulative_rewards = []
+    running = 0.0
+    for fr in frames:
+        r = fr["reward"]
+        if r is not None:
+            running += float(r)
+        cumulative_rewards.append(running)
+
 
     # Prepare a tile visualization: use a discrete colormap
     # We keep it simple: map tile codes to themselves and use a categorical colormap
@@ -216,10 +225,9 @@ def play_frames(frames):
         lines = [
             "STATE",
             f"hp:    {frame['hp']}",
-            f"reward: {reward_str}",
+            f"reward total: {cumulative_rewards[idx]:.1f}",
             f"tick:  {frame['tick']}",
             "",
-
             "< MAGIC >",
             f"magic_hit: {info.get('took_magic_damage', False)}",
             "",
@@ -285,7 +293,8 @@ def play_frames(frames):
 
 
 def main():
-    env = DukeSurvivalEnv(max_steps=200, seed=0)
+    import time
+    env = DukeSurvivalEnv(max_steps=200, seed=int(time.time() * 1_000_000) % (2**32 - 1))
 
     frames = run_episode_and_record(
         env=env,
