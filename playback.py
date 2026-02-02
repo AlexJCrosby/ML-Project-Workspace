@@ -1,0 +1,297 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from duke_env import DukeSurvivalEnv
+
+
+ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT"}
+
+
+def random_policy(env: DukeSurvivalEnv, state: int, info: dict) -> int:
+    """A simple baseline policy for debugging playback."""
+    return int(env.rng.integers(0, env.n_actions))
+
+
+def run_episode_and_record(env: DukeSurvivalEnv, policy_fn, max_steps: int = 500):
+    """
+    Runs a single episode and records frames.
+
+    Each frame stores:
+      - grid tiles
+      - agent position
+      - tick, hp, gaze flags
+      - action taken (for the transition into this frame)
+      - info dict returned by env.step
+      - hazard masks (for visualization)
+    """
+    frames = []
+
+    state = env.reset()
+    done = False
+
+    # Record an initial frame BEFORE any action (action=None)
+    frames.append(capture_frame(env, action=None, reward=None, done=False, info={"tick": env.t}))
+
+    steps = 0
+    while not done and steps < max_steps:
+        # You can swap in other policies later (e.g., greedy Q-table)
+        action = policy_fn(env, state, {})  # info isn't needed for random policy
+
+        next_state, reward, done, info = env.step(action)
+
+        frames.append(capture_frame(env, action=action, reward=reward, done=done, info=info))
+
+        state = next_state
+        steps += 1
+    return frames
+
+
+def capture_frame(env: DukeSurvivalEnv, action, reward, done: bool, info: dict):
+    """
+    Creates a snapshot for visualization.
+
+    NOTE: This reads env internals (grid, hp, t, etc.) which is fine for debugging tooling.
+    """
+    grid = np.array(env.grid, copy=True)
+    agent_pos = tuple(int(x) for x in env.agent_pos)
+
+    tick = int(info.get("tick", env.t))
+    hp = int(env.hp)
+    gaze_active = bool(env.gaze_active)
+    gaze_timer = int(env.gaze_timer)
+
+    # Hazard overlays (purely visual):
+    # - Slam hazard: if slam resolves on tick%5==1, standing on melee tile takes damage.
+    #   We'll highlight all melee tiles on slam ticks so you can "see" the danger phase.
+    slam_tick = (tick % 5 == 1)
+    telegraph_tick = (tick % 5 == 0)
+
+    melee_mask = (grid == env.TILE_MELEE)
+    slam_hazard_mask = melee_mask & slam_tick
+
+    # Gaze resolution happens when gaze_timer counts down to 0 inside step().
+    # In your env, the lethal check occurs when gaze_active and gaze_timer reaches 0.
+    # So a useful visual is: "if gaze_active, show pillar tiles as safe targets"
+    pillar_mask = (grid == env.TILE_PILLAR)
+    gaze_imminent = gaze_active and (gaze_timer <= 1)
+
+    # Create a simple "danger" mask for the viewer:
+    # - highlight melee tiles on slam ticks
+    # - optionally, if gaze is imminent, highlight non-pillar tiles as danger (but that's "global")
+    danger_mask = slam_hazard_mask.copy()
+
+    return {
+        "grid": grid,
+        "agent_pos": agent_pos,
+        "tick": tick,
+        "hp": hp,
+        "gaze_active": gaze_active,
+        "gaze_timer": gaze_timer,
+        "telegraph_tick": telegraph_tick,
+        "slam_tick": slam_tick,
+        "gaze_imminent": gaze_imminent,
+        "pillar_mask": pillar_mask,
+        "danger_mask": danger_mask,
+        "action": action,
+        "reward": reward,
+        "done": done,
+        "info": info,
+    }
+
+
+def play_frames(frames):
+    """
+    Opens a matplotlib window with arrow-key scrubbing.
+
+    Controls:
+      - Right arrow: next frame
+      - Left arrow: previous frame
+      - Space: autoplay/pause
+      - r: restart (go to frame 0)
+      - q or esc: quit
+    """
+    if not frames:
+        print("No frames to display.")
+        return
+
+    idx = 0
+    autoplay = False
+
+    # Prepare a tile visualization: use a discrete colormap
+    # We keep it simple: map tile codes to themselves and use a categorical colormap
+    # (You can refine this later.)
+    grid0 = frames[0]["grid"]
+    n_rows, n_cols = grid0.shape
+    
+    fig = plt.figure(figsize=(10, 7))
+    fig.canvas.manager.set_window_title("Duke Playback (←/→ step, space play/pause)")
+
+    # 2-column layout: left text, right grid
+    gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[1.05, 2.2], wspace=0.05)
+
+    ax_text = fig.add_subplot(gs[0, 0])
+    ax_grid = fig.add_subplot(gs[0, 1])
+
+    # Text panel setup
+    ax_text.axis("off")
+    text_box = ax_text.text(
+        0.0, 1.0, "",
+        transform=ax_text.transAxes,
+        va="top", ha="left",
+        fontsize=11,
+        family="monospace",
+    )
+
+    # Grid panel setup
+    grid0 = frames[0]["grid"]
+    n_rows, n_cols = grid0.shape
+
+    im = ax_grid.imshow(grid0, interpolation="nearest", cmap="tab20")
+    ax_grid.set_xticks(np.arange(-0.5, n_cols, 1), minor=True)
+    ax_grid.set_yticks(np.arange(-0.5, n_rows, 1), minor=True)
+    ax_grid.grid(which="minor", linewidth=0.5)
+    ax_grid.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+    # Persistent overlays (create ONCE, then update)
+    agent_dot = ax_grid.scatter(
+        [0], [0],
+        s=220,
+        marker="o",
+        c="white",
+        edgecolors="black",
+        linewidths=2.5,
+        zorder=10,
+    )
+
+    danger_overlay = ax_grid.imshow(
+        np.zeros_like(grid0, dtype=float),
+        interpolation="nearest",
+        cmap="Reds",
+        alpha=0.0,
+        vmin=0.0,
+        vmax=1.0,
+    )
+
+    def update_view():
+        nonlocal idx
+
+        frame = frames[idx]
+        grid = frame["grid"]
+
+        im.set_data(grid)
+
+        # Update agent marker (x=col, y=row)
+        r, c = frame["agent_pos"]
+        agent_dot.set_offsets([[c, r]])
+
+        # Update danger overlay
+        danger = frame["danger_mask"].astype(float)
+        danger_overlay.set_data(danger)
+        danger_overlay.set_alpha(0.35 if danger.max() > 0 else 0.0)
+
+        # HUD text
+        action = frame["action"]
+        action_str = "START" if action is None else f"{action} ({ACTION_NAMES.get(action, '?')})"
+        reward = frame["reward"]
+        reward_str = "-" if reward is None else str(reward)
+
+        info = frame.get("info", {})
+        took_slam = info.get("took_slam_damage", False)
+        took_gaze = info.get("took_gaze_damage", False)
+
+        action = frame["action"]
+        action_str = "START" if action is None else f"{action} ({ACTION_NAMES.get(action, '?')})"
+        reward = frame["reward"]
+        reward_str = "-" if reward is None else str(reward)
+
+        info = frame.get("info", {})
+        took_slam = info.get("took_slam_damage", False)
+        took_gaze = info.get("took_gaze_damage", False)
+
+        lines = [
+            "STATE",
+            f"frame: {idx}/{len(frames)-1}",
+            f"tick:  {frame['tick']}",
+            f"hp:    {frame['hp']}",
+            "",
+            "BOSS",
+            f"telegraph: {frame['telegraph_tick']}",
+            f"slam:      {frame['slam_tick']}",
+            f"gaze_active:{frame['gaze_active']}",
+            f"gaze_timer: {frame['gaze_timer']}",
+            f"imminent:   {frame['gaze_imminent']}",
+            "",
+            "AGENT",
+            f"action: {action_str}",
+            f"reward: {reward_str}",
+            f"done:   {frame['done']}",
+            "",
+            "EVENTS",
+            f"slam_hit: {took_slam}",
+            f"gaze_hit: {took_gaze}",
+            f"magic_hit: {info.get('took_magic_damage', False)}",
+        ]
+
+        text_box.set_text("\n".join(lines))
+
+
+        fig.canvas.draw_idle()
+
+    def on_key(event):
+        nonlocal idx, autoplay
+
+        if event.key == "right":
+            idx = min(idx + 1, len(frames) - 1)
+            update_view()
+        elif event.key == "left":
+            idx = max(idx - 1, 0)
+            update_view()
+        elif event.key == " ":
+            autoplay = not autoplay
+        elif event.key == "r":
+            idx = 0
+            update_view()
+        elif event.key in ("q", "escape"):
+            plt.close(fig)
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    # Basic autoplay loop using a timer
+    # Basic autoplay loop using a SINGLE repeating timer (do not create timers inside the callback)
+    def on_timer():
+        nonlocal idx, autoplay
+        if not plt.fignum_exists(fig.number):
+            return
+
+        if autoplay:
+            if idx < len(frames) - 1:
+                idx += 1
+                update_view()
+            else:
+                autoplay = False
+
+
+    update_view()
+
+    timer = fig.canvas.new_timer(interval=120)
+    timer.add_callback(on_timer)
+    timer.start()
+
+    plt.show()
+
+
+
+def main():
+    env = DukeSurvivalEnv(max_steps=200, seed=0)
+
+    frames = run_episode_and_record(
+        env=env,
+        policy_fn=random_policy,
+        max_steps=500,
+    )
+
+    play_frames(frames)
+
+
+if __name__ == "__main__":
+    main()

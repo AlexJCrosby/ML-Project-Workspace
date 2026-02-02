@@ -169,15 +169,18 @@ class DukeSurvivalEnv:
 
             self.attack_event_count += 1
 
-        # Icicle telegraph + slam (simplified):
-        # tick%5==0: telegraph (warn)
-        # tick%5==1: slam lands (damage if on melee tile)
-        if self.t % 5 == 1:
-            if self._tile_at(self.agent_pos) == self.TILE_MELEE:
-                self.hp -= self.slam_damage
-                info["took_slam_damage"] = True
-            else:
-                info["took_slam_damage"] = False
+        # Standard attack resolves here.
+        # In melee range -> slam logic
+        # Out of melee range -> magic projectile (big mistake)
+        if self._tile_at(self.agent_pos) == self.TILE_MELEE:
+            self.hp -= self.slam_damage
+            info["took_slam_damage"] = True
+            info["took_magic_damage"] = False
+        else:
+            self.hp -= 48
+            info["took_slam_damage"] = False
+            info["took_magic_damage"] = True
+
 
         # Handle gaze countdown and resolution
         if self.gaze_active:
