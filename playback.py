@@ -56,15 +56,17 @@ def capture_frame(env: DukeSurvivalEnv, action, reward, done: bool, info: dict):
     agent_pos = tuple(int(x) for x in env.agent_pos)
 
     tick = int(info.get("tick", env.t))
-    hp = int(env.hp)
-    gaze_active = bool(env.gaze_active)
-    gaze_timer = int(env.gaze_timer)
+    hp = int(info.get("hp", env.hp))
+    gaze_active = bool(info.get("gaze_active", env.gaze_active))
+    gaze_timer = int(info.get("gaze_timer", env.gaze_timer))
+
 
     # With 1-indexed ticks:
     # - telegraph/attack-cycle ticks are 5,10,15,...  => tick % 5 == 0 and tick >= 5
     # - slam ticks are the following ticks: 6,11,16,... => (tick - 1) % 5 == 0 and tick >= 6
+    slam_tick = bool(info.get("boss_slam", False))
     telegraph_tick = (tick >= 5) and (tick % 5 == 0)
-    slam_tick = (tick >= 6) and ((tick - 1) % 5 == 0)
+
 
     # Slam hazard is row=2, cols 3..10 inclusive (1x1 AoE per tile)
     slam_zone = np.zeros_like(grid, dtype=bool)
@@ -213,26 +215,24 @@ def play_frames(frames):
 
         lines = [
             "STATE",
-            f"frame: {idx}/{len(frames)-1}",
-            f"tick:  {frame['tick']}",
             f"hp:    {frame['hp']}",
-            "",
-            "BOSS",
-            f"telegraph: {frame['telegraph_tick']}",
-            f"slam:      {frame['slam_tick']}",
-            f"gaze_active:{frame['gaze_active']}",
-            f"gaze_timer: {frame['gaze_timer']}",
-            f"imminent:   {frame['gaze_imminent']}",
-            "",
-            "AGENT",
-            f"action: {action_str}",
             f"reward: {reward_str}",
-            f"done:   {frame['done']}",
+            f"tick:  {frame['tick']}",
             "",
-            "EVENTS",
-            f"slam_hit: {took_slam}",
-            f"gaze_hit: {took_gaze}",
+
+            "< MAGIC >",
             f"magic_hit: {info.get('took_magic_damage', False)}",
+            "",
+            "< MELEE >",
+            f"rise_hit: {info.get('took_rise_damage', False)}",
+            f"slam_active: {frame['slam_tick']}",
+            f"slam_hit: {took_slam}",
+            "",
+            "< GAZE >",
+            f"gaze_active:{frame['gaze_active']}",
+            f"gaze_hit: {took_gaze}",
+            f"gaze_timer: {frame['gaze_timer']}",
+            "",
         ]
 
         text_box.set_text("\n".join(lines))

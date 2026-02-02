@@ -43,7 +43,7 @@ class DukeSurvivalEnv:
     def __init__(
         self,
         max_steps: int = 300,
-        start_hp: int = 99,
+        start_hp: int = 10000,
         slam_damage: int = 20,
         gaze_damage: int = 999,
         step_reward: float = 1.0,
@@ -109,6 +109,8 @@ class DukeSurvivalEnv:
         self.gaze_timer = None
         self.pending_slam = None
         self.last_melee_cycle_tick = None
+        self.standard_attack_count = 0 
+
 
 
     # --- helpers for state <-> index ---
@@ -133,6 +135,7 @@ class DukeSurvivalEnv:
         self.attack_event_count = 0
         self.gaze_active = False
         self.gaze_timer = 0
+        self.standard_attack_count = 0
 
         # Standard attack state
         self.pending_slam = False
@@ -181,6 +184,7 @@ class DukeSurvivalEnv:
             "hp": self.hp,
             "gaze_active": self.gaze_active,
             "gaze_timer": self.gaze_timer,
+            "boss_slam": False,
         }
 
         # ------------------------------------------------------------
@@ -192,62 +196,78 @@ class DukeSurvivalEnv:
         # - On following tick after melee cycle tick -> Icicle Slam (+20 if on slam tiles)
         # ------------------------------------------------------------
 
-        # 1) Resolve a pending slam (only happens the tick AFTER a melee cycle tick)
-        if self.pending_slam and (self.last_melee_cycle_tick is not None) and (self.t == self.last_melee_cycle_tick + 1):
-            # Slam is 1x1 AoE on row=2, cols 3..10 inclusive
+        # 1) Resolve Slam ONLY if we scheduled it from a melee cycle
+        if (not self.gaze_active) and self.pending_slam and (self.last_melee_cycle_tick is not None) and (self.t == self.last_melee_cycle_tick + 1):
+            info["boss_slam"] = True
+            
             r, c = int(self.agent_pos[0]), int(self.agent_pos[1])
             in_slam = (r == 2) and (3 <= c <= 10)
-
+            
             if in_slam:
                 self.hp -= self.slam_damage
                 info["took_slam_damage"] = True
             else:
                 info["took_slam_damage"] = False
-
-            # Slam resolved, clear pending
+            # Slam happens once, then clears
             self.pending_slam = False
+
 
         # 2) Attack cycle tick (5,10,15,...)
         if self.t % 5 == 0:
-            # Count attack events for gaze cadence
-            self.attack_event_count += 1
 
-            # Trigger Freezing Gaze every 5th attack event (ticks 25,50,75,...)
-            if self.attack_event_count % 5 == 0:
-                self.gaze_active = True
-                self.gaze_timer = 5  # after 5 ticks, must be on a pillar tile
-
-            # Decide attack type based on coordinate melee range
-            if self._in_melee_range(self.agent_pos):
-                # Icicle Rise (telegraph + small damage if you're in the rise AoE)
-                # Rise affects rows 2..3 and cols 2..10 (your described "two rows in front incl diagonals")
-                r, c = int(self.agent_pos[0]), int(self.agent_pos[1])
-                in_rise_aoe = (r in (2, 3)) and (2 <= c <= 10)
-
-                if in_rise_aoe:
-                    self.hp -= 3
-                    info["took_rise_damage"] = True
-                else:
-                    info["took_rise_damage"] = False
-
-                # Schedule Slam next tick
-                self.pending_slam = True
-                self.last_melee_cycle_tick = self.t
-
-                info["took_magic_damage"] = False
+            # If gaze is active, it suppresses all standard attacks (including on cycle ticks)
+            if self.gaze_active:
+                pass
 
             else:
-                # Magic projectile (28 damage)
-                self.hp -= 28
-                info["took_magic_damage"] = True
+                # Every 5th would-be standard attack is replaced by starting gaze.
+                # That means: after 4 standard attacks, the next cycle tick starts gaze.
+                if self.standard_attack_count >= 4:
+                    self.gaze_active = True
+                    self.gaze_timer = 6  # gaze resolves 5 ticks later
+                    self.standard_attack_count = 0
 
-                # Ensure we don't accidentally slam next tick
-                self.pending_slam = False
-                self.last_melee_cycle_tick = None
+                    # Make absolutely sure no slam can occur due to earlier state
+                    self.pending_slam = False
+                    self.last_melee_cycle_tick = None
 
-                info["took_rise_damage"] = False
-                info["took_slam_damage"] = False
+                    # Optional: for playback/debug
+                    info["boss_gaze_start"] = True
 
+                else:
+                    # Do a standard attack (melee or magic)
+                    if self._in_melee_range(self.agent_pos):
+                        # Icicle Rise damage if in rise AoE (rows 2..3, cols 2..10)
+                        r, c = int(self.agent_pos[0]), int(self.agent_pos[1])
+                        in_rise_aoe = (r in (2, 3)) and (2 <= c <= 10)
+
+                        if in_rise_aoe:
+                            self.hp -= 3
+                            info["took_rise_damage"] = True
+                        else:
+                            info["took_rise_damage"] = False
+
+                        # Schedule Slam next tick
+                        self.pending_slam = True
+                        self.last_melee_cycle_tick = self.t
+
+                        info["took_magic_damage"] = False
+
+                    else:
+                        # Magic projectile (28 damage)
+                        self.hp -= 28
+                        info["took_magic_damage"] = True
+
+                        # Ensure we don't accidentally slam next tick
+                        self.pending_slam = False
+                        self.last_melee_cycle_tick = None
+
+                        info["took_rise_damage"] = False
+                        info["took_slam_damage"] = False
+
+                    # Count that we performed a standard attack on this cycle tick
+                    self.standard_attack_count += 1
+                    
         # Handle gaze countdown and resolution
         if self.gaze_active:
             self.gaze_timer -= 1
@@ -268,6 +288,11 @@ class DukeSurvivalEnv:
         if self.hp <= 0:
             done = True
             reward = self.death_penalty
+
+        # --- Finalize info with POST-resolution values (so playback is consistent) ---
+        info["hp"] = self.hp
+        info["gaze_active"] = self.gaze_active
+        info["gaze_timer"] = self.gaze_timer
 
         self.t += 1
         if self.t >= self.max_steps:
