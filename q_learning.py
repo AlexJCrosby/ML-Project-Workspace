@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from env import MazeEnv
+from duke_env import DukeSurvivalEnv
 
 # action selection
 def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng: np.random.Generator) -> int:
@@ -26,7 +26,7 @@ def train_q_learning(
     epsilon_decay: float = 0.995, # exploration decay rate
     seed: int = 0
 ):
-    env = MazeEnv()
+    env = DukeSurvivalEnv(max_steps=max_steps_per_episode, seed=seed)
     rng = np.random.default_rng(seed)
     
     # Q-table: rows = states, columns = actions
@@ -34,17 +34,43 @@ def train_q_learning(
     
     epsilon = epsilon_start
     episode_rewards = []
+    episode_survival_ticks = []
+    episode_damage_magic = []
+    episode_damage_rise = []
+    episode_damage_slam = []
+    episode_damage_gaze = []
+    episode_total_damage = []
+    episode_died = []
+
     
     for episode in range(num_episodes):
         state = env.reset()
         total_reward = 0.0
+        survival_ticks = 0
+        dmg_magic = 0
+        dmg_rise = 0
+        dmg_slam = 0
+        dmg_gaze = 0
+        died = False
         
         for t in range(max_steps_per_episode):
             # 1. Choose action (epsilon-greedy)
             action = choose_action(state, Q, epsilon, env.n_actions, rng)
             
             # 2. Take step in environment
-            next_state, reward, done, _ = env.step(action) 
+            next_state, reward, done, info = env.step(action)
+            survival_ticks += 1
+
+            # Damage breakdown (matches duke_env.py flags)
+            if info.get("took_magic_damage", False):
+                dmg_magic += 28
+            if info.get("took_rise_damage", False):
+                dmg_rise += 3
+            if info.get("took_slam_damage", False):
+                dmg_slam += env.slam_damage
+            if info.get("took_gaze_damage", False):
+                dmg_gaze += env.gaze_damage
+
 
             # 3. Q-learning update
             old_value = Q[state, action]
@@ -59,12 +85,25 @@ def train_q_learning(
             total_reward += reward # track how this episode is going
             
             if done:
+                died = (env.hp <= 0)
                 break
             
         # 4. Decay epsilon after each episode (reduce randomness over time)
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
         
         episode_rewards.append(total_reward)
+        episode_survival_ticks.append(survival_ticks)
+
+        episode_damage_magic.append(dmg_magic)
+        episode_damage_rise.append(dmg_rise)
+        episode_damage_slam.append(dmg_slam)
+        episode_damage_gaze.append(dmg_gaze)
+
+        total_dmg = dmg_magic + dmg_rise + dmg_slam + dmg_gaze
+        episode_total_damage.append(total_dmg)
+
+        episode_died.append(int(died))
+
         
         # Logging: print progress every 100 episodes
         if (episode + 1) % 100 == 0:
@@ -74,82 +113,87 @@ def train_q_learning(
                 f"Avg Reward (last 100): {last_100_avg:6.2f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
-    return Q, episode_rewards
+    logs = {
+        "reward": episode_rewards,
+        "survival_ticks": episode_survival_ticks,
+        "damage_magic": episode_damage_magic,
+        "damage_rise": episode_damage_rise,
+        "damage_slam": episode_damage_slam,
+        "damage_gaze": episode_damage_gaze,
+        "damage_total": episode_total_damage,
+        "died": episode_died,
+    }
+    return Q, logs
 
-def plot_learning_curve(
-    rewards: list[float],
+
+def plot_metric_curve(
+    values: list[float],
+    title: str,
+    ylabel: str,
     window: int = 100,
-    filename: str = "learning_curve.png"
+    filename: str = "plot.png"
 ) -> None:
-    """
-    Saves a learning curve plot (episode reward + moving average) to a PNG file.
-    """
-    import matplotlib.pyplot as plt  # imported here to keep the rest of the file lightweight
-
-    if len(rewards) == 0:
-        print("No rewards to plot.")
+    if len(values) == 0:
+        print(f"No values to plot for {title}.")
         return
 
-    episodes = np.arange(1, len(rewards) + 1)
+    episodes = np.arange(1, len(values) + 1)
 
     plt.figure()
-    plt.plot(episodes, rewards, label="Episode reward")
+    plt.plot(episodes, values, label=ylabel)
 
-    # Moving average (only if we have enough episodes)
-    if len(rewards) >= window:
+    if len(values) >= window:
         kernel = np.ones(window) / window
-        moving_avg = np.convolve(rewards, kernel, mode="valid")
-        ma_episodes = np.arange(window, len(rewards) + 1)
+        moving_avg = np.convolve(np.asarray(values, dtype=float), kernel, mode="valid")
+        ma_episodes = np.arange(window, len(values) + 1)
         plt.plot(ma_episodes, moving_avg, label=f"Moving average ({window})")
 
     plt.xlabel("Episode")
-    plt.ylabel("Total reward")
-    plt.title("Q-Learning: Learning Curve")
+    plt.ylabel(ylabel)
+    plt.title(title)
     plt.legend()
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
-
-    print(f"Saved learning curve plot to: {filename}")
+    print(f"Saved plot to: {filename}")
 
 # No learning, just demonstrate the learned policy
-def run_greedy_policy(Q: np.ndarray, render: bool = True, max_steps: int = 50):
+def run_greedy_policy(Q: np.ndarray, max_steps: int = 100):
     """
     Run one episode using the greedy policy (no exploration)
-    to see how well the agent has learned.
+    to see how well the agent has learned in the Duke survival env.
     """
-    env = MazeEnv()
+    env = DukeSurvivalEnv(max_steps=max_steps, seed=0)
     state = env.reset()
-    
-    if render:
-        env.render()
-        
+
     total_reward = 0.0
-    
+
     for t in range(max_steps):
         action = int(np.argmax(Q[state]))  # always pick best action
-        next_state, reward, done, _ = env.step(action)
+        next_state, reward, done, info = env.step(action)
+
         total_reward += reward
-        
-        if render:
-            print(f"Step {t}: action={action}, reward={reward}, done={done}")
-            total_reward += reward
-            
         state = next_state
-        
+
         if done:
-            print(f"Reached goal in {t+1} steps with total reward {total_reward:.2f}.")
+            died = (env.hp <= 0)
+            if died:
+                print(f"Died on tick {t+1} | total_reward={total_reward:.2f}")
+            else:
+                print(f"Episode ended on tick {t+1} | total_reward={total_reward:.2f}")
             break
     else:
-        print(f"Did not reach goal within {max_steps} steps. Total reward: {total_reward:.2f}.")   
+        print(f"Max ticks reached ({max_steps}) | total_reward={total_reward:.2f}")
+
         
 if __name__ == "__main__":
     # Train Q-learning agent
-    Q, rewards = train_q_learning()
-        
-    # Save a learning curve plot
-    plot_learning_curve(rewards, window=100, filename="learning_curve.png")
+    Q, logs = train_q_learning()
+
+    plot_metric_curve(logs["reward"], "Q-Learning: Episode Reward", "Total reward", window=100, filename="reward_curve.png")
+    plot_metric_curve(logs["survival_ticks"], "Q-Learning: Survival Time", "Ticks survived", window=100, filename="survival_curve.png")
+    plot_metric_curve(logs["damage_total"], "Q-Learning: Total Damage Taken", "Damage taken", window=100, filename="damage_curve.png")
 
     # Test the learned policy
-    print("\nRunning greedy policy after training:\n")
-    run_greedy_policy(Q, render=True)
+    print("\nRunning greedy survival policy after training:\n")
+    run_greedy_policy(Q, max_steps=10000)

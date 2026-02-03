@@ -43,7 +43,7 @@ class DukeSurvivalEnv:
     def __init__(
         self,
         max_steps: int = 300,
-        start_hp: int = 10000,
+        start_hp: int = 2000,
         slam_damage: int = 20,
         gaze_damage: int = 999,
         step_reward: float = 1.0,
