@@ -17,8 +17,8 @@ def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng:
     
 # Main Q-learning training loop
 def train_q_learning(
-    num_episodes: int = 2000,
-    max_steps_per_episode: int = 100,
+    num_episodes: int = 1000,
+    max_steps_per_episode: int = 5000,
     alpha: float = 0.1, # learning rate
     gamma: float = 0.99, # discount factor
     epsilon_start: float = 1.0, # initial exploration rate
@@ -105,12 +105,13 @@ def train_q_learning(
         episode_died.append(int(died))
 
         
-        # Logging: print progress every 100 episodes
-        if (episode + 1) % 100 == 0:
-            last_100_avg = np.mean(episode_rewards[-100:])
-            print( # diagnostic (visualise learning progress)
+        # Logging: print progress every 25 episodes
+        if (episode + 1) % 25 == 0:
+            last_25_avg = np.mean(episode_rewards[-25:])
+            print(
                 f"Episode {episode + 1:4d} | "
-                f"Avg Reward (last 100): {last_100_avg:6.2f} | "
+                f"Avg Reward (25): {last_25_avg:6.2f} | "
+                f"Avg Survival (25): {np.mean(episode_survival_ticks[-25:]):5.1f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
     logs = {
@@ -190,10 +191,10 @@ if __name__ == "__main__":
     # Train Q-learning agent
     Q, logs = train_q_learning()
 
-    plot_metric_curve(logs["reward"], "Q-Learning: Episode Reward", "Total reward", window=100, filename="reward_curve.png")
-    plot_metric_curve(logs["survival_ticks"], "Q-Learning: Survival Time", "Ticks survived", window=100, filename="survival_curve.png")
-    plot_metric_curve(logs["damage_total"], "Q-Learning: Total Damage Taken", "Damage taken", window=100, filename="damage_curve.png")
+    plot_metric_curve(logs["reward"], "Q-Learning: Episode Reward", "Total reward", window=15, filename="reward_curve.png")
+    plot_metric_curve(logs["survival_ticks"], "Q-Learning: Survival Time", "Ticks survived", window=15, filename="survival_curve.png")
+    plot_metric_curve(logs["damage_total"], "Q-Learning: Total Damage Taken", "Damage taken", window=15, filename="damage_curve.png")
 
     # Test the learned policy
     print("\nRunning greedy survival policy after training:\n")
-    run_greedy_policy(Q, max_steps=1000)
+    run_greedy_policy(Q, max_steps=5000)
