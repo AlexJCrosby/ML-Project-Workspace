@@ -196,4 +196,4 @@ if __name__ == "__main__":
 
     # Test the learned policy
     print("\nRunning greedy survival policy after training:\n")
-    run_greedy_policy(Q, max_steps=10000)
+    run_greedy_policy(Q, max_steps=1000)
