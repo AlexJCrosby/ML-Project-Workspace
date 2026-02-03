@@ -123,6 +123,9 @@ def train_q_learning(
                 f"Avg Survival (50): {np.mean(episode_survival_ticks[-50:]):5.1f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
+        if (episode + 1) in (1, 25, 100, 500):
+            np.save(f"Q_ep{episode+1:04d}.npy", Q)
+
     logs = {
         "reward": episode_rewards,
         "survival_ticks": episode_survival_ticks,

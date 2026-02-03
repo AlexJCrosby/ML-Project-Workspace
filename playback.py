@@ -1,11 +1,15 @@
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
 from duke_env import DukeSurvivalEnv
 
+ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT", 4: "WAIT"}
 
-ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT"}
-
+def greedy_q_policy(Q: np.ndarray):
+    def policy(env: DukeSurvivalEnv, state: int, info: dict) -> int:
+        return int(np.argmax(Q[state]))
+    return policy
 
 def random_policy(env: DukeSurvivalEnv, state: int, info: dict) -> int:
     """A simple baseline policy for debugging playback."""
@@ -289,20 +293,184 @@ def play_frames(frames):
 
     plt.show()
 
+def play_frames_side_by_side(frames_a, frames_b, label_a="A", label_b="B"):
+    """
+    Side-by-side playback of two frame sequences with synced controls.
+
+    Controls:
+      - Right arrow: next frame (both)
+      - Left arrow: previous frame (both)
+      - Space: autoplay/pause
+      - r: restart
+      - q or esc: quit
+    """
+    if not frames_a or not frames_b:
+        print("Need two non-empty frame lists.")
+        return
+
+    # Clamp helper: if one episode is shorter, hold its last frame.
+    def get_frame(frames, idx):
+        if idx < 0:
+            return frames[0]
+        if idx >= len(frames):
+            return frames[-1]
+        return frames[idx]
+
+    idx = 0
+    autoplay = False
+    max_len = max(len(frames_a), len(frames_b))
+
+    grid0 = frames_a[0]["grid"]
+    n_rows, n_cols = grid0.shape
+
+    fig = plt.figure(figsize=(14, 7))
+    fig.canvas.manager.set_window_title("Duke Side-by-Side Playback (←/→ step, space play/pause)")
+    gs = fig.add_gridspec(nrows=1, ncols=4, width_ratios=[1.05, 2.2, 1.05, 2.2], wspace=0.05)
+
+    # Left text + grid
+    ax_text_a = fig.add_subplot(gs[0, 0]); ax_text_a.axis("off")
+    ax_grid_a = fig.add_subplot(gs[0, 1])
+
+    # Right text + grid
+    ax_text_b = fig.add_subplot(gs[0, 2]); ax_text_b.axis("off")
+    ax_grid_b = fig.add_subplot(gs[0, 3])
+
+    text_a = ax_text_a.text(0.0, 1.0, "", transform=ax_text_a.transAxes,
+                            va="top", ha="left", fontsize=11, family="monospace")
+    text_b = ax_text_b.text(0.0, 1.0, "", transform=ax_text_b.transAxes,
+                            va="top", ha="left", fontsize=11, family="monospace")
+
+    # Shared colormap style
+    im_a = ax_grid_a.imshow(grid0, interpolation="nearest", cmap="tab20")
+    im_b = ax_grid_b.imshow(grid0, interpolation="nearest", cmap="tab20")
+
+    for ax in (ax_grid_a, ax_grid_b):
+        ax.set_xticks(np.arange(-0.5, n_cols, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, n_rows, 1), minor=True)
+        ax.grid(which="minor", linewidth=0.5)
+        ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+    agent_a = ax_grid_a.scatter([0], [0], s=220, marker="o", c="white",
+                                edgecolors="black", linewidths=2.5, zorder=10)
+    agent_b = ax_grid_b.scatter([0], [0], s=220, marker="o", c="white",
+                                edgecolors="black", linewidths=2.5, zorder=10)
+
+    danger_a = ax_grid_a.imshow(np.zeros_like(grid0, dtype=float), interpolation="nearest",
+                                cmap="Reds", alpha=0.0, vmin=0.0, vmax=1.0)
+    danger_b = ax_grid_b.imshow(np.zeros_like(grid0, dtype=float), interpolation="nearest",
+                                cmap="Reds", alpha=0.0, vmin=0.0, vmax=1.0)
+
+    def hud_lines(frame, label):
+        info = frame.get("info", {})
+        took_slam = info.get("took_slam_damage", False)
+        took_gaze = info.get("took_gaze_damage", False)
+
+        return [
+            f"[ {label} ]",
+            f"hp:    {frame['hp']}",
+            f"tick:  {frame['tick']}",
+            "",
+            "< MAGIC >",
+            f"magic_hit: {info.get('took_magic_damage', False)}",
+            "",
+            "< MELEE >",
+            f"rise_hit: {info.get('took_rise_damage', False)}",
+            f"slam_active: {frame['slam_tick']}",
+            f"slam_hit: {took_slam}",
+            "",
+            "< GAZE >",
+            f"gaze_active:{frame['gaze_active']}",
+            f"gaze_hit: {took_gaze}",
+            f"gaze_timer: {frame['gaze_timer']}",
+            "",
+        ]
+
+    def update_view():
+        nonlocal idx
+
+        fa = get_frame(frames_a, idx)
+        fb = get_frame(frames_b, idx)
+
+        im_a.set_data(fa["grid"])
+        im_b.set_data(fb["grid"])
+
+        ra, ca = fa["agent_pos"]
+        rb, cb = fb["agent_pos"]
+        agent_a.set_offsets([[ca, ra]])
+        agent_b.set_offsets([[cb, rb]])
+
+        da = fa["danger_mask"].astype(float)
+        db = fb["danger_mask"].astype(float)
+        danger_a.set_data(da)
+        danger_b.set_data(db)
+        danger_a.set_alpha(0.35 if da.max() > 0 else 0.0)
+        danger_b.set_alpha(0.35 if db.max() > 0 else 0.0)
+
+        text_a.set_text("\n".join(hud_lines(fa, label_a)))
+        text_b.set_text("\n".join(hud_lines(fb, label_b)))
+
+        fig.suptitle(f"Frame {idx+1}/{max_len}  (A={label_a}, B={label_b})")
+        fig.canvas.draw_idle()
+
+    def on_key(event):
+        nonlocal idx, autoplay
+        if event.key == "right":
+            idx = min(idx + 1, max_len - 1)
+            update_view()
+        elif event.key == "left":
+            idx = max(idx - 1, 0)
+            update_view()
+        elif event.key == " ":
+            autoplay = not autoplay
+        elif event.key == "r":
+            idx = 0
+            update_view()
+        elif event.key in ("q", "escape"):
+            plt.close(fig)
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    def on_timer():
+        nonlocal idx, autoplay
+        if not plt.fignum_exists(fig.number):
+            return
+        if autoplay:
+            if idx < max_len - 1:
+                idx += 1
+                update_view()
+            else:
+                autoplay = False
+
+    update_view()
+    timer = fig.canvas.new_timer(interval=120)
+    timer.add_callback(on_timer)
+    timer.start()
+    plt.show()
 
 
 def main():
     import time
-    env = DukeSurvivalEnv(max_steps=200, seed=int(time.time() * 1_000_000) % (2**32 - 1))
 
-    frames = run_episode_and_record(
-        env=env,
-        policy_fn=random_policy,
-        max_steps=500,
-    )
+    # Choose snapshots to compare
+    snap_a = "Q_ep0001.npy"
+    snap_b = "Q_ep0100.npy"
 
-    play_frames(frames)
+    Q_a = np.load(snap_a)
+    Q_b = np.load(snap_b)
 
+    # Build two separate envs so they don't share RNG/state
+    seed_base = int(time.time() * 1_000_000) % (2**32 - 1)
+
+    env_a = DukeSurvivalEnv(max_steps=5000, seed=seed_base)
+    env_b = DukeSurvivalEnv(max_steps=5000, seed=(seed_base + 1) % (2**32 - 1))
+
+    policy_a = greedy_q_policy(Q_a)
+    policy_b = greedy_q_policy(Q_b)
+
+    frames_a = run_episode_and_record(env=env_a, policy_fn=policy_a, max_steps=5000)
+    frames_b = run_episode_and_record(env=env_b, policy_fn=policy_b, max_steps=5000)
+
+    play_frames_side_by_side(frames_a, frames_b, label_a=snap_a, label_b=snap_b)
 
 if __name__ == "__main__":
     main()
