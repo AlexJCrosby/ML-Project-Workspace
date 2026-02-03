@@ -17,8 +17,8 @@ def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng:
     
 # Main Q-learning training loop
 def train_q_learning(
-    num_episodes: int = 1000,
-    max_steps_per_episode: int = 5000,
+    num_episodes: int = 2000,
+    max_steps_per_episode: int = 10000,
     alpha: float = 0.1, # learning rate
     gamma: float = 0.99, # discount factor
     epsilon_start: float = 1.0, # initial exploration rate
@@ -41,6 +41,8 @@ def train_q_learning(
     episode_damage_gaze = []
     episode_total_damage = []
     episode_died = []
+    episode_damage_rate = []
+
 
     
     for episode in range(num_episodes):
@@ -102,7 +104,12 @@ def train_q_learning(
         total_dmg = dmg_magic + dmg_rise + dmg_slam + dmg_gaze
         episode_total_damage.append(total_dmg)
 
+        # Damage rate: damage per tick survived
+        damage_rate = total_dmg / max(1, survival_ticks)
+        episode_damage_rate.append(damage_rate)
+
         episode_died.append(int(died))
+
 
         
         # FIX USING A STATIC VALUE
@@ -124,6 +131,7 @@ def train_q_learning(
         "damage_slam": episode_damage_slam,
         "damage_gaze": episode_damage_gaze,
         "damage_total": episode_total_damage,
+        "damage_rate": episode_damage_rate,
         "died": episode_died,
     }
     return Q, logs
@@ -195,7 +203,7 @@ if __name__ == "__main__":
 
     plot_metric_curve(logs["reward"], "Q-Learning: Episode Reward", "Total reward", window=15, filename="reward_curve.png")
     plot_metric_curve(logs["survival_ticks"], "Q-Learning: Survival Time", "Ticks survived", window=15, filename="survival_curve.png")
-    plot_metric_curve(logs["damage_total"], "Q-Learning: Total Damage Taken", "Damage taken", window=15, filename="damage_curve.png")
+    plot_metric_curve(logs["damage_rate"], "Q-Learning: Damage Rate", "Damage per tick", window=15, filename="damage_rate_curve.png")
 
     # Test the learned policy
     print("\nRunning greedy survival policy after training:\n")
