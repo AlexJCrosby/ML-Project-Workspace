@@ -81,7 +81,8 @@ class DukeSurvivalEnv:
 
 
         self.n_rows, self.n_cols = self.grid.shape
-        self.n_states = self.n_rows * self.n_cols
+        self.n_phases = 5
+        self.n_states = self.n_rows * self.n_cols * self.n_phases
         self.n_actions = len(ACTION_DELTAS)
 
         # Parameters
@@ -115,14 +116,18 @@ class DukeSurvivalEnv:
 
     # --- helpers for state <-> index ---
 
-    def pos_to_state(self, pos: np.ndarray) -> int:
-        r, c = int(pos[0]), int(pos[1])
-        return r * self.n_cols + c
+    def pos_to_state(self, r: int, c: int, phase: int) -> int:
+        phase = int(phase) % 5
+        tile_index = r * self.n_cols + c
+        return tile_index * 5 + phase
 
-    def state_to_pos(self, state: int) -> np.ndarray:
-        r = state // self.n_cols
-        c = state % self.n_cols
-        return np.array([r, c], dtype=int)
+    def state_to_pos(self, s: int) -> tuple[int, int, int]:
+        s = int(s)
+        phase = s % 5
+        tile_index = s // 5
+        r = tile_index // self.n_cols
+        c = tile_index % self.n_cols
+        return r, c, phase
 
     def reset(self) -> int:
         self.agent_pos = self.start_pos.copy()
@@ -141,7 +146,9 @@ class DukeSurvivalEnv:
         self.pending_slam = False
         self.last_melee_cycle_tick = None
 
-        return self.pos_to_state(self.agent_pos)
+        phase = self.t % 5
+        r, c = self.agent_pos
+        return self.pos_to_state(r, c, phase)
 
 
     def _is_pillar_safe(self, pos: np.ndarray) -> bool:
@@ -315,7 +322,10 @@ class DukeSurvivalEnv:
         if self.t >= self.max_steps:
             done = True  # survived the whole episode
 
-        next_state = self.pos_to_state(self.agent_pos)
+        phase = self.t % 5
+        r, c = self.agent_pos
+        next_state = self.pos_to_state(r, c, phase)
+
         return next_state, reward, done, info
 
     def render(self):

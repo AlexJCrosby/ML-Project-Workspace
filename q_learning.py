@@ -105,13 +105,15 @@ def train_q_learning(
         episode_died.append(int(died))
 
         
+        # FIX USING A STATIC VALUE
+        # ASSIGN A VARIABLE TO THE VALUE DESIRED
         # Logging: print progress every 25 episodes
-        if (episode + 1) % 25 == 0:
-            last_25_avg = np.mean(episode_rewards[-25:])
+        if (episode + 1) % 50 == 0:
+            last_50_avg = np.mean(episode_rewards[-50:])
             print(
                 f"Episode {episode + 1:4d} | "
-                f"Avg Reward (25): {last_25_avg:6.2f} | "
-                f"Avg Survival (25): {np.mean(episode_survival_ticks[-25:]):5.1f} | "
+                f"Avg Reward (50): {last_50_avg:6.2f} | "
+                f"Avg Survival (50): {np.mean(episode_survival_ticks[-50:]):5.1f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
     logs = {
