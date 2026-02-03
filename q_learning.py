@@ -18,7 +18,7 @@ def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng:
 # Main Q-learning training loop
 def train_q_learning(
     num_episodes: int = 2000,
-    max_steps_per_episode: int = 10000,
+    max_steps_per_episode: int = 5000,
     alpha: float = 0.1, # learning rate
     gamma: float = 0.99, # discount factor
     epsilon_start: float = 1.0, # initial exploration rate
@@ -123,7 +123,8 @@ def train_q_learning(
                 f"Avg Survival (50): {np.mean(episode_survival_ticks[-50:]):5.1f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
-        if (episode + 1) in (1, 25, 100, 500):
+        # Save Q-table at specific episodes
+        if (episode + 1) in (1, 5, 25, 500):
             np.save(f"Q_ep{episode+1:04d}.npy", Q)
 
     logs = {
@@ -172,7 +173,7 @@ def plot_metric_curve(
     print(f"Saved plot to: {filename}")
 
 # No learning, just demonstrate the learned policy
-def run_greedy_policy(Q: np.ndarray, max_steps: int = 100):
+def run_greedy_policy(Q: np.ndarray, max_steps: int = 5000):
     """
     Run one episode using the greedy policy (no exploration)
     to see how well the agent has learned in the Duke survival env.

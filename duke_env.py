@@ -47,7 +47,7 @@ class DukeSurvivalEnv:
         max_steps: int = 300,
         start_hp: int = 2000,
         slam_damage: int = 20,
-        gaze_damage: int = 999,
+        gaze_damage: int = 100,
         step_reward: float = 1.0,
         death_penalty: float = -100.0,
         seed: int = 0,
