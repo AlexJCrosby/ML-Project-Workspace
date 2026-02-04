@@ -1,6 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import pickle
 from duke_env import DukeSurvivalEnv
+
+def capture_frame(env, action, reward, done, info):
+    """Minimal frame snapshot for playback; reads env internals."""
+    return {
+        "agent_pos": tuple(int(x) for x in env.agent_pos),
+        "tick": int(info.get("tick", env.t)),
+        "hp": int(info.get("hp", env.hp)),
+        "gaze_active": bool(info.get("gaze_active", getattr(env, "gaze_active", False))),
+        "gaze_timer": int(info.get("gaze_timer", getattr(env, "gaze_timer", 0))),
+        "action": action,
+        "reward": reward,
+        "done": bool(done),
+        "info": info,
+        # Optional but very useful for visuals/debug:
+        "grid": np.array(env.grid, copy=True),
+    }
 
 # action selection
 def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng: np.random.Generator) -> int:
@@ -33,10 +51,14 @@ def train_q_learning(
     epsilon_decay: float = 0.995,
     seed: int = 0,
     use_phase: bool = True,
+    record_episodes: tuple[int, ...] = (1, 500),
+    recordings_dir: str = "recordings",
 ):
 
     env = DukeSurvivalEnv(max_steps=max_steps_per_episode, seed=seed)
     rng = np.random.default_rng(seed)
+    
+    os.makedirs(recordings_dir, exist_ok=True)
     
     # Q-table: rows = states, columns = actions
     n_states = env.n_states if use_phase else (env.n_states // 5)
@@ -59,6 +81,12 @@ def train_q_learning(
     
     for episode in range(num_episodes):
         state = env.reset()
+        ep_num = episode + 1
+        do_record = ep_num in record_episodes
+        frames = []
+        if do_record:
+            # initial frame before any action
+            frames.append(capture_frame(env, action=None, reward=None, done=False, info={"tick": env.t, "hp": env.hp}))
         if not use_phase:
             state = strip_phase(state)
         total_reward = 0.0
@@ -70,42 +98,39 @@ def train_q_learning(
         died = False
         
         for t in range(max_steps_per_episode):
-            # 1. Choose action (epsilon-greedy)
             action = choose_action(state, Q, epsilon, env.n_actions, rng)
-            
-            # 2. Take step in environment
+
             next_state, reward, done, info = env.step(action)
             if not use_phase:
                 next_state = strip_phase(next_state)
+
+            if do_record:
+                frames.append(capture_frame(env, action=action, reward=reward, done=done, info=info))
+
             survival_ticks += 1
+            # ... (damage + Q update exactly as you have it)
 
-            # Damage breakdown (matches duke_env.py flags)
-            if info.get("took_magic_damage", False):
-                dmg_magic += 28
-            if info.get("took_rise_damage", False):
-                dmg_rise += 3
-            if info.get("took_slam_damage", False):
-                dmg_slam += env.slam_damage
-            if info.get("took_gaze_damage", False):
-                dmg_gaze += env.gaze_damage
+            state = next_state
+            total_reward += reward
 
-
-            # 3. Q-learning update
-            old_value = Q[state, action]
-            next_max = np.max(Q[next_state])
-            
-            # Where learning happens: 
-            # Q(s,a) <- Q(s,a) + alpha * [reward + gamma * max_a' Q(s',a') - Q(s,a)]
-            new_value = old_value + alpha * (reward + gamma * next_max - old_value)
-            Q[state, action] = new_value
-            
-            state = next_state # update where it thinks it is
-            total_reward += reward # track how this episode is going
-            
             if done:
                 died = (env.hp <= 0)
                 break
-            
+        else:
+            # If loop ends without 'break', episode ended by max steps
+            died = (env.hp <= 0)
+
+        # Save recording ONCE per episode, after the loop
+        if do_record:
+            fname = os.path.join(
+                recordings_dir,
+                f"{'phase' if use_phase else 'baseline'}_ep{ep_num:04d}.pkl"
+            )
+            with open(fname, "wb") as f:
+                pickle.dump(frames, f)
+            print(f"Saved episode recording: {fname} ({len(frames)} frames)")
+
+
         # 4. Decay epsilon after each episode (reduce randomness over time)
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
         

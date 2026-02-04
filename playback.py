@@ -1,10 +1,12 @@
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
+import os
 
 from duke_env import DukeSurvivalEnv
 
-ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT", 4: "WAIT"}
+ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT"}
 
 def greedy_q_policy(Q: np.ndarray):
     """
@@ -257,13 +259,13 @@ def play_frames(frames):
             "",
             "< MELEE >",
             f"rise_hit: {info.get('took_rise_damage', False)}",
-            f"slam_active: {frame['slam_tick']}",
+            f"slam_active: {frame.get('slam_tick', False)}",
             f"slam_hit: {took_slam}",
             "",
             "< GAZE >",
-            f"gaze_active:{frame['gaze_active']}",
+            f"gaze_active:{frame.get('gaze_active', False)}",
             f"gaze_hit: {took_gaze}",
-            f"gaze_timer: {frame['gaze_timer']}",
+            f"gaze_timer: {frame.get('gaze_timer', 0)}",
             "",
         ]
 
@@ -386,23 +388,27 @@ def play_frames_side_by_side(frames_a, frames_b, label_a="A", label_b="B"):
         took_slam = info.get("took_slam_damage", False)
         took_gaze = info.get("took_gaze_damage", False)
 
+        action = frame.get("action", None)
+        action_str = "START" if action is None else f"{action} ({ACTION_NAMES.get(action, '?')})"
+
         return [
             f"[ {label} ]",
-            f"hp:    {frame['hp']}",
-            f"tick:  {frame['tick']}",
+            f"hp:    {frame.get('hp', 0)}",
+            f"tick:  {frame.get('tick', 0)}",
+            f"action:{action_str}",
             "",
             "< MAGIC >",
             f"magic_hit: {info.get('took_magic_damage', False)}",
             "",
             "< MELEE >",
             f"rise_hit: {info.get('took_rise_damage', False)}",
-            f"slam_active: {frame['slam_tick']}",
+            f"slam_active: {frame.get('slam_tick', False)}",
             f"slam_hit: {took_slam}",
             "",
             "< GAZE >",
-            f"gaze_active:{frame['gaze_active']}",
+            f"gaze_active:{frame.get('gaze_active', False)}",
             f"gaze_hit: {took_gaze}",
-            f"gaze_timer: {frame['gaze_timer']}",
+            f"gaze_timer: {frame.get('gaze_timer', 0)}",
             "",
         ]
 
@@ -420,12 +426,15 @@ def play_frames_side_by_side(frames_a, frames_b, label_a="A", label_b="B"):
         agent_a.set_offsets([[ca, ra]])
         agent_b.set_offsets([[cb, rb]])
 
-        da = fa["danger_mask"].astype(float)
-        db = fb["danger_mask"].astype(float)
+        # Danger overlays are optional (recordings from training may not include masks)
+        da = np.asarray(fa.get("danger_mask", np.zeros_like(fa["grid"], dtype=float)), dtype=float)
+        db = np.asarray(fb.get("danger_mask", np.zeros_like(fb["grid"], dtype=float)), dtype=float)
+
         danger_a.set_data(da)
         danger_b.set_data(db)
-        danger_a.set_alpha(0.35 if da.max() > 0 else 0.0)
-        danger_b.set_alpha(0.35 if db.max() > 0 else 0.0)
+
+        danger_a.set_alpha(0.35 if da.size and da.max() > 0 else 0.0)
+        danger_b.set_alpha(0.35 if db.size and db.max() > 0 else 0.0)
 
         text_a.set_text("\n".join(hud_lines(fa, label_a)))
         text_b.set_text("\n".join(hud_lines(fb, label_b)))
@@ -469,29 +478,21 @@ def play_frames_side_by_side(frames_a, frames_b, label_a="A", label_b="B"):
     plt.show()
 
 
+def load_recording(path: str):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
 def main():
-    import time
+    # Choose which two recordings to compare
+    left_path  = os.path.join("recordings", "phase_ep0001.pkl")
+    right_path = os.path.join("recordings", "phase_ep0500.pkl")
 
-    # Choose snapshots to compare
-    snap_a = "Q_ep0001.npy"
-    snap_b = "Q_ep0025.npy"
+    frames_left = load_recording(left_path)
+    frames_right = load_recording(right_path)
 
-    Q_a = np.load(snap_a)
-    Q_b = np.load(snap_b)
+    # If your playback already supports side-by-side, call it here:
+    play_frames_side_by_side(frames_left, frames_right, label_a="Episode 1", label_b="Episode 500")
 
-    # Build two separate envs so they don't share RNG/state
-    seed_base = int(time.time() * 1_000_000) % (2**32 - 1)
-
-    env_a = DukeSurvivalEnv(max_steps=5000, seed=seed_base)
-    env_b = DukeSurvivalEnv(max_steps=5000, seed=(seed_base + 1) % (2**32 - 1))
-
-    policy_a = greedy_q_policy(Q_a)
-    policy_b = greedy_q_policy(Q_b)
-
-    frames_a = run_episode_and_record(env=env_a, policy_fn=policy_a, max_steps=5000)
-    frames_b = run_episode_and_record(env=env_b, policy_fn=policy_b, max_steps=5000)
-
-    play_frames_side_by_side(frames_a, frames_b, label_a=snap_a, label_b=snap_b)
 
 if __name__ == "__main__":
     main()
