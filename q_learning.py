@@ -14,23 +14,34 @@ def choose_action(state: int, Q: np.ndarray, epsilon:float, n_actions: int, rng:
     else:
         return int(np.argmax(Q[state]))  # Exploit: best action based on Q-tabler
     
-    
+
+def strip_phase(state: int) -> int:
+    """
+    Remove tick phase from state.
+    Assumes state = tile_index * 5 + phase.
+    """
+    return state // 5
+
 # Main Q-learning training loop
 def train_q_learning(
-    num_episodes: int = 2000,
-    max_steps_per_episode: int = 5000,
-    alpha: float = 0.1, # learning rate
-    gamma: float = 0.99, # discount factor
-    epsilon_start: float = 1.0, # initial exploration rate
-    epsilon_min: float = 0.01, # minimum exploration rate
-    epsilon_decay: float = 0.995, # exploration decay rate
-    seed: int = 0
+    num_episodes: int = 1200,
+    max_steps_per_episode: int = 10000,
+    alpha: float = 0.1,
+    gamma: float = 0.99,
+    epsilon_start: float = 1.0,
+    epsilon_min: float = 0.01,
+    epsilon_decay: float = 0.995,
+    seed: int = 0,
+    use_phase: bool = True,
 ):
+
     env = DukeSurvivalEnv(max_steps=max_steps_per_episode, seed=seed)
     rng = np.random.default_rng(seed)
     
     # Q-table: rows = states, columns = actions
-    Q = np.zeros((env.n_states, env.n_actions), dtype=float)
+    n_states = env.n_states if use_phase else (env.n_states // 5)
+    Q = np.zeros((n_states, env.n_actions), dtype=float)
+
     
     epsilon = epsilon_start
     episode_rewards = []
@@ -47,6 +58,8 @@ def train_q_learning(
     
     for episode in range(num_episodes):
         state = env.reset()
+        if not use_phase:
+            state = strip_phase(state)
         total_reward = 0.0
         survival_ticks = 0
         dmg_magic = 0
@@ -61,6 +74,8 @@ def train_q_learning(
             
             # 2. Take step in environment
             next_state, reward, done, info = env.step(action)
+            if not use_phase:
+                next_state = strip_phase(next_state)
             survival_ticks += 1
 
             # Damage breakdown (matches duke_env.py flags)
@@ -115,12 +130,12 @@ def train_q_learning(
         # FIX USING A STATIC VALUE
         # ASSIGN A VARIABLE TO THE VALUE DESIRED
         # Logging: print progress every 25 episodes
-        if (episode + 1) % 50 == 0:
-            last_50_avg = np.mean(episode_rewards[-50:])
+        if (episode + 1) % 100 == 0:
+            last_100_avg = np.mean(episode_rewards[-100:])
             print(
                 f"Episode {episode + 1:4d} | "
-                f"Avg Reward (50): {last_50_avg:6.2f} | "
-                f"Avg Survival (50): {np.mean(episode_survival_ticks[-50:]):5.1f} | "
+                f"Avg Reward (100): {last_100_avg:6.2f} | "
+                f"Avg Survival (100): {np.mean(episode_survival_ticks[-100:]):5.1f} | "
                 f"Epsilon: {epsilon:5.3f}"
             )
         # Save Q-table at specific episodes
@@ -173,19 +188,24 @@ def plot_metric_curve(
     print(f"Saved plot to: {filename}")
 
 # No learning, just demonstrate the learned policy
-def run_greedy_policy(Q: np.ndarray, max_steps: int = 5000):
+def run_greedy_policy(Q: np.ndarray, max_steps: int = 20000, use_phase: bool = True):
     """
     Run one episode using the greedy policy (no exploration)
     to see how well the agent has learned in the Duke survival env.
     """
     env = DukeSurvivalEnv(max_steps=max_steps, seed=0)
     state = env.reset()
+    if not use_phase:
+        state = strip_phase(state)
 
     total_reward = 0.0
 
     for t in range(max_steps):
         action = int(np.argmax(Q[state]))  # always pick best action
         next_state, reward, done, info = env.step(action)
+        if not use_phase:
+            next_state = strip_phase(next_state)
+
 
         total_reward += reward
         state = next_state
@@ -202,13 +222,35 @@ def run_greedy_policy(Q: np.ndarray, max_steps: int = 5000):
 
         
 if __name__ == "__main__":
+
+    # Choose which experiment to run
+    # "baseline" = ignores phase (state compressed)
+    # "phase"    = uses full state (position + tick_mod_5)
+    RUN_MODE = "baseline"   # <-- change to "baseline" when needed
+
+    if RUN_MODE == "baseline":
+        print("\n=== BASELINE RUN (no phase) ===\n")
+        use_phase = False
+        tag = "baseline"
+        title_prefix = "Baseline (No Phase)"
+
+    elif RUN_MODE == "phase":
+        print("\n=== PHASE-AWARE RUN ===\n")
+        use_phase = True
+        tag = "phase"
+        title_prefix = "Phase-Aware"
+
+    else:
+        raise ValueError('RUN_MODE must be "baseline" or "phase"')
+
     # Train Q-learning agent
-    Q, logs = train_q_learning()
+    Q, logs = train_q_learning(use_phase=use_phase)
 
-    plot_metric_curve(logs["reward"], "Q-Learning: Episode Reward", "Total reward", window=15, filename="reward_curve.png")
-    plot_metric_curve(logs["survival_ticks"], "Q-Learning: Survival Time", "Ticks survived", window=15, filename="survival_curve.png")
-    plot_metric_curve(logs["damage_rate"], "Q-Learning: Damage Rate", "Damage per tick", window=15, filename="damage_rate_curve.png")
+    # Plots (saved with tag so they don't overwrite each other)
+    plot_metric_curve(logs["reward"], f"Q-Learning: Episode Reward ({title_prefix})", "Total reward", window=15, filename=f"reward_curve_{tag}.png")
+    plot_metric_curve(logs["survival_ticks"], f"Q-Learning: Survival Time ({title_prefix})", "Ticks survived", window=15, filename=f"survival_curve_{tag}.png")
+    plot_metric_curve(logs["damage_rate"], f"Q-Learning: Damage Rate ({title_prefix})", "Damage per tick", window=15, filename=f"damage_rate_curve_{tag}.png")
 
-    # Test the learned policy
-    print("\nRunning greedy survival policy after training:\n")
-    run_greedy_policy(Q, max_steps=5000)
+    # Greedy evaluation
+    print(f"\nRunning greedy survival policy ({tag}) after training:\n")
+    run_greedy_policy(Q, max_steps=20000, use_phase=use_phase)
