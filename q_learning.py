@@ -41,6 +41,7 @@ def train_q_learning(
     # Q-table: rows = states, columns = actions
     n_states = env.n_states if use_phase else (env.n_states // 5)
     Q = np.zeros((n_states, env.n_actions), dtype=float)
+    
 
     
     epsilon = epsilon_start
@@ -222,11 +223,10 @@ def run_greedy_policy(Q: np.ndarray, max_steps: int = 20000, use_phase: bool = T
 
         
 if __name__ == "__main__":
-
     # Choose which experiment to run
     # "baseline" = ignores phase (state compressed)
     # "phase"    = uses full state (position + tick_mod_5)
-    RUN_MODE = "baseline"   # <-- change to "baseline" when needed
+    RUN_MODE = "phase"   # <-- change to "baseline" when needed
 
     if RUN_MODE == "baseline":
         print("\n=== BASELINE RUN (no phase) ===\n")
@@ -239,7 +239,6 @@ if __name__ == "__main__":
         use_phase = True
         tag = "phase"
         title_prefix = "Phase-Aware"
-
     else:
         raise ValueError('RUN_MODE must be "baseline" or "phase"')
 

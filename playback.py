@@ -474,7 +474,7 @@ def main():
 
     # Choose snapshots to compare
     snap_a = "Q_ep0001.npy"
-    snap_b = "Q_ep0500.npy"
+    snap_b = "Q_ep0025.npy"
 
     Q_a = np.load(snap_a)
     Q_b = np.load(snap_b)
