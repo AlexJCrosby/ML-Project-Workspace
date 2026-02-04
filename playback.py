@@ -7,9 +7,30 @@ from duke_env import DukeSurvivalEnv
 ACTION_NAMES = {0: "UP", 1: "RIGHT", 2: "DOWN", 3: "LEFT", 4: "WAIT"}
 
 def greedy_q_policy(Q: np.ndarray):
+    """
+    Returns a policy that selects greedy actions from a Q-table.
+
+    Supports both:
+      - phase-aware Q (rows == env.n_states)
+      - phase-stripped Q (rows == env.n_states // 5), where state must be collapsed via state//5
+    """
     def policy(env: DukeSurvivalEnv, state: int, info: dict) -> int:
-        return int(np.argmax(Q[state]))
+        s = int(state)
+
+        # If Q-table is smaller than the env's state space, assume it is phase-stripped
+        # and collapse: state = tile_index * 5 + phase  -> tile_index
+        if Q.shape[0] != getattr(env, "n_states", Q.shape[0]) and Q.shape[0] == getattr(env, "n_states", 0) // 5:
+            s = s // 5
+
+        # Extra safety: if still out of bounds, try collapsing once
+        if s < 0 or s >= Q.shape[0]:
+            s = (int(state) // 5)
+        if s < 0 or s >= Q.shape[0]:
+            raise IndexError(f"State {state} (mapped to {s}) out of bounds for Q with {Q.shape[0]} states.")
+
+        return int(np.argmax(Q[s]))
     return policy
+
 
 def random_policy(env: DukeSurvivalEnv, state: int, info: dict) -> int:
     """A simple baseline policy for debugging playback."""
