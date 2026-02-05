@@ -90,34 +90,60 @@ def train_q_learning(
     for episode in range(num_episodes):
         state = env.reset()
         ep_num = episode + 1
+
         do_record = ep_num in record_episodes
         frames = []
         if do_record:
             # initial frame before any action
-            frames.append(capture_frame(env, action=None, reward=None, done=False, info={"tick": env.t, "hp": env.hp}))
+            frames.append(
+                capture_frame(env, action=None, reward=None, done=False, info={"tick": env.t, "hp": env.hp})
+            )
+
         if not use_phase:
             state = strip_phase(state)
+
         total_reward = 0.0
         survival_ticks = 0
+
         dmg_magic = 0
         dmg_rise = 0
         dmg_slam = 0
         dmg_gaze = 0
+
         died = False
-        
+
         for t in range(max_steps_per_episode):
+            # 1) Choose action (epsilon-greedy)
             action = choose_action(state, Q, epsilon, env.n_actions, rng)
 
+            # 2) Take step in environment
             next_state, reward, done, info = env.step(action)
             if not use_phase:
                 next_state = strip_phase(next_state)
 
+            # Record frame AFTER step (so it captures the new env state + info)
             if do_record:
                 frames.append(capture_frame(env, action=action, reward=reward, done=done, info=info))
 
             survival_ticks += 1
-            # ... (damage + Q update exactly as you have it)
 
+            # Damage breakdown (matches duke_env.py flags)
+            if info.get("took_magic_damage", False):
+                dmg_magic += 28
+            if info.get("took_rise_damage", False):
+                dmg_rise += 3
+            if info.get("took_slam_damage", False):
+                dmg_slam += env.slam_damage
+            if info.get("took_gaze_damage", False):
+                dmg_gaze += env.gaze_damage
+
+            # 3) Q-learning update (THIS IS THE “MISSING CHUNK”)
+            old_value = Q[state, action]
+            next_max = np.max(Q[next_state])
+            new_value = old_value + alpha * (reward + gamma * next_max - old_value)
+            Q[state, action] = new_value
+
+            # 4) Bookkeeping
             state = next_state
             total_reward += reward
 
@@ -138,10 +164,10 @@ def train_q_learning(
                 pickle.dump(frames, f)
             print(f"Saved episode recording: {fname} ({len(frames)} frames)")
 
-
-        # 4. Decay epsilon after each episode (reduce randomness over time)
+        # 5) Decay epsilon after each episode (unchanged)
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
-        
+
+        # 6) Save logs (same as your original)
         episode_rewards.append(total_reward)
         episode_survival_ticks.append(survival_ticks)
 
@@ -153,11 +179,11 @@ def train_q_learning(
         total_dmg = dmg_magic + dmg_rise + dmg_slam + dmg_gaze
         episode_total_damage.append(total_dmg)
 
-        # Damage rate: damage per tick survived
         damage_rate = total_dmg / max(1, survival_ticks)
         episode_damage_rate.append(damage_rate)
 
         episode_died.append(int(died))
+
 
 
         
