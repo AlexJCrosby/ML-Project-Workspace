@@ -57,7 +57,6 @@ def train_q_learning(
     record_episodes: tuple[int, ...] = (1, 500),
     recordings_dir: str = "recordings",
 ):
-
     env = DukeSurvivalEnv(
     max_steps=max_steps_per_episode,
     seed=seed,
