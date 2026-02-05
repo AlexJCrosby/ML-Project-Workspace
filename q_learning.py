@@ -49,13 +49,22 @@ def train_q_learning(
     epsilon_start: float = 1.0,
     epsilon_min: float = 0.01,
     epsilon_decay: float = 0.995,
+    step_reward: float = 1.0,
+    death_penalty: float = -100.0,
+    damage_scale: float = 0.1,
     seed: int = 0,
     use_phase: bool = True,
     record_episodes: tuple[int, ...] = (1, 500),
     recordings_dir: str = "recordings",
 ):
 
-    env = DukeSurvivalEnv(max_steps=max_steps_per_episode, seed=seed)
+    env = DukeSurvivalEnv(
+    max_steps=max_steps_per_episode,
+    seed=seed,
+    step_reward=step_reward,
+    death_penalty=death_penalty,
+    damage_scale=damage_scale,
+)
     rng = np.random.default_rng(seed)
     
     os.makedirs(recordings_dir, exist_ok=True)

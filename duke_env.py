@@ -50,6 +50,7 @@ class DukeSurvivalEnv:
         gaze_damage: int = 100,
         step_reward: float = 1.0,
         death_penalty: float = -100.0,
+        damage_scale: float = 0.1,
         seed: int = 0,
     ):
         self.rng = np.random.default_rng(seed)
@@ -94,7 +95,7 @@ class DukeSurvivalEnv:
         self.gaze_damage = int(gaze_damage)
         self.step_reward = float(step_reward)
         self.death_penalty = float(death_penalty)
-
+        self.damage_scale = float(damage_scale)
 
 
         # Precompute walkable mask
@@ -308,8 +309,7 @@ class DukeSurvivalEnv:
         if info.get("took_gaze_damage", False):
             damage_this_tick += self.gaze_damage
 
-        # Scale factor: tune this. 0.1 means 28 dmg => -2.8 reward.
-        reward -= 0.1 * damage_this_tick
+        reward -= self.damage_scale * damage_this_tick
 
         if self.hp <= 0:
             done = True
